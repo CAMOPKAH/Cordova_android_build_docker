@@ -1,0 +1,2855 @@
+<!doctype html>
+<html lang="ru">
+    <head>
+        <meta charset="UTF-8" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+        />
+        <title>Игра "Хлопни комара!"</title>
+        <style>
+            body {
+                margin: 0;
+                padding: 0;
+                overflow: hidden;
+                background-color: #87ceeb;
+                font-family: Arial, sans-serif;
+                /* Prevent text selection/callout on mobile */
+                -webkit-touch-callout: none;
+                -webkit-user-select: none;
+                -khtml-user-select: none;
+                -moz-user-select: none;
+                -ms-user-select: none;
+                user-select: none;
+                /* Prevent iOS overscroll behavior */
+                position: fixed;
+                width: 100%;
+                height: 100%;
+                touch-action: manipulation;
+            }
+
+            html,
+            body {
+                /* Fix for iPhone safe areas */
+                padding: env(safe-area-inset-top) env(safe-area-inset-right)
+                    env(safe-area-inset-bottom) env(safe-area-inset-left);
+                /* Prevent bounce effect */
+                overscroll-behavior: none;
+            }
+
+            canvas {
+                display: block;
+                touch-action: manipulation; /* Optimize for touch */
+                /* Smoother rendering on mobile */
+                image-rendering: -webkit-optimize-contrast;
+                image-rendering: crisp-edges;
+            }
+
+            #game-over {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                font-size: 48px;
+                color: red;
+                font-weight: bold;
+                display: none;
+                text-align: center;
+                background-color: rgba(0, 0, 0, 0.8);
+                padding: 30px;
+                border-radius: 10px;
+                /* Fix for iPhone 11 screen */
+                width: 80%;
+                max-width: 500px;
+                z-index: 10;
+            }
+
+            #final-score {
+                margin-top: 15px;
+                font-size: 28px;
+                color: #ffcc00;
+            }
+
+            #restart-button,
+            #high-scores-btn {
+                position: fixed;
+                background-color: #ff6600;
+                color: white;
+                border: none;
+                padding: 15px 30px;
+                border-radius: 8px;
+                font-size: 18px;
+                cursor: pointer;
+                z-index: 10;
+                font-weight: bold;
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+                transition: background-color 0.2s;
+            }
+
+            #restart-button {
+                bottom: 30%;
+                left: 50%;
+                transform: translateX(-50%);
+            }
+
+            #high-scores-btn {
+                bottom: 20%;
+                left: 50%;
+                transform: translateX(-50%);
+            }
+
+            #restart-button:hover,
+            #high-scores-btn:hover {
+                background-color: #ff9900;
+            }
+
+            #prod-label {
+                position: fixed;
+                bottom: max(
+                    10px,
+                    env(safe-area-inset-bottom)
+                ); /* Respect iOS safe area */
+                left: 50%;
+                transform: translateX(-50%);
+                font-size: 18px;
+                font-weight: bold;
+                color: white;
+                z-index: 5;
+                background-color: rgba(0, 0, 0, 0.5);
+                padding: 5px 15px;
+                border-radius: 10px;
+                z-index: 5;
+            }
+
+            /* iPhone 11 specific styles */
+            .iphone11 canvas {
+                /* iPhone 11 has 414 x 896 screen with 2x pixel ratio */
+                width: 100%;
+                height: 100%;
+                /* Optimize for iPhone 11 performance */
+                will-change: transform;
+            }
+
+            /* iPhone 11 specific touch target sizing */
+            .iphone11 #restart-button {
+                padding: 20px 40px;
+                font-size: 28px;
+            }
+
+            /* Fix for iPhone notch */
+            @supports (padding-top: env(safe-area-inset-top)) {
+                .iphone11 {
+                    padding-top: env(safe-area-inset-top);
+                    padding-bottom: env(safe-area-inset-bottom);
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <canvas id="gameCanvas"></canvas>
+        <div id="game-over">
+            Игра окончена
+            <div id="final-score"></div>
+        </div>
+        <div id="prod-label">ПРОД</div>
+        <button id="restart-button" style="display: none">Перезапустить</button>
+        <button id="high-scores-btn" style="display: none">Рекорды</button>
+        <button
+            id="rules-btn"
+            style="
+                position: fixed;
+                bottom: 10px;
+                right: 10px;
+                background: #ff6600;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 5px;
+                cursor: pointer;
+                font-weight: bold;
+                z-index: 10;
+                box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+            "
+        >
+            Правила
+        </button>
+
+        <script>
+            // Constants
+            const MAX_MOSQUITOES = 15;
+            const INITIAL_LIVES = 100;
+            const MOSQUITO_SIZE_RATIO = 20; // 1/20th of screen size
+            const DANGER_ZONE_HEIGHT_RATIO = 0.1; // 10% of screen height
+
+            // Mosquito types
+            const MOSQUITO_TYPES = [
+                {
+                    health: 1,
+                    color: "#886644",
+                    wingColor: "rgba(200, 200, 255, 0.7)",
+                    size: 1.0,
+                    isBomb: false,
+                    isInvisible: false,
+                    isFast: false,
+                    isArmored: false,
+                    isPoison: false,
+                    isSplit: false,
+                    points: 1,
+                    speedMultiplier: 1.0,
+                    lifesDrained: 1,
+                    secondaryColor: "#664422",
+                    name: "Обычный комар",
+                },
+                {
+                    health: 3,
+                    color: "#cc3333",
+                    wingColor: "rgba(255, 200, 200, 0.7)",
+                    size: 1.2,
+                    isBomb: false,
+                    isInvisible: false,
+                    isFast: false,
+                    isArmored: true, // Бронированный - требует больше ударов
+                    isPoison: false,
+                    isSplit: false,
+                    points: 3,
+                    speedMultiplier: 0.8,
+                    lifesDrained: 1,
+                    secondaryColor: "#aa2222",
+                    name: "Бронированный комар",
+                },
+                {
+                    health: 4,
+                    color: "#3333cc",
+                    wingColor: "rgba(200, 255, 200, 0.7)",
+                    size: 1.4,
+                    isBomb: false,
+                    isInvisible: false,
+                    isFast: false,
+                    isArmored: false,
+                    isPoison: true, // Ядовитый - при уничтожении создает облако яда
+                    isSplit: false,
+                    points: 4,
+                    speedMultiplier: 0.7,
+                    lifesDrained: 2,
+                    secondaryColor: "#2222aa",
+                    name: "Ядовитый комар",
+                },
+                {
+                    health: 2,
+                    color: "#ffcc00",
+                    wingColor: "rgba(255, 255, 0, 0.7)",
+                    size: 1.3,
+                    isBomb: true, // Взрывается и уничтожает других комаров
+                    isInvisible: false,
+                    isFast: false,
+                    isArmored: false,
+                    isPoison: false,
+                    isSplit: false,
+                    points: 5,
+                    speedMultiplier: 0.9,
+                    lifesDrained: 1,
+                    secondaryColor: "#ff9900",
+                    name: "Комар-бомба",
+                },
+                {
+                    health: 1,
+                    color: "#66cc66",
+                    wingColor: "rgba(200, 255, 200, 0.8)",
+                    size: 0.8,
+                    isBomb: false,
+                    isInvisible: false,
+                    isFast: true, // Быстрый - движется быстрее других
+                    isArmored: false,
+                    isPoison: false,
+                    isSplit: false,
+                    points: 2,
+                    speedMultiplier: 2.0,
+                    lifesDrained: 1,
+                    secondaryColor: "#44aa44",
+                    name: "Быстрый комар",
+                },
+                {
+                    health: 2,
+                    color: "#aa55aa",
+                    wingColor: "rgba(230, 190, 255, 0.7)",
+                    size: 1.1,
+                    isBomb: false,
+                    isInvisible: true, // Становится невидимым периодически
+                    isFast: false,
+                    isArmored: false,
+                    isPoison: false,
+                    isSplit: false,
+                    points: 3,
+                    speedMultiplier: 1.2,
+                    lifesDrained: 1,
+                    secondaryColor: "#884488",
+                    name: "Невидимый комар",
+                },
+                {
+                    health: 3,
+                    color: "#ff6600",
+                    wingColor: "rgba(255, 230, 200, 0.7)",
+                    size: 1.5,
+                    isBomb: false,
+                    isInvisible: false,
+                    isFast: false,
+                    isArmored: false,
+                    isPoison: false,
+                    isSplit: true, // При уничтожении разделяется на 2 маленьких
+                    points: 4,
+                    speedMultiplier: 0.7,
+                    lifesDrained: 2,
+                    secondaryColor: "#cc5500",
+                    name: "Делящийся комар",
+                },
+            ];
+
+            // Particle effects
+            let particles = [];
+            const PARTICLE_COLORS = [
+                "#ff0000",
+                "#ff6600",
+                "#ffcc00",
+                "#ffffff",
+                "#ff3399",
+            ];
+            const PARTICLE_LIFETIME = 30; // frames
+
+            // Text effects for hits
+            let textEffects = [];
+            const TEXT_LIFETIME = 40; // frames
+
+            // Explosion radius for bomb mosquito
+            const BOMB_RADIUS = 150; // pixels
+
+            // Mosquito images (base64 encoded)
+            const MOSQUITO_IMAGES = {
+                // Regular brown mosquito
+                0: "data:image/png;base64,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",
+                // Red mosquito
+                1: "data:image/png;base64,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",
+                // Blue mosquito
+                2: "data:image/png;base64,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",
+                // Bomb mosquito
+                3: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAHZklEQVR4nO2bfWxVZx3HP8/zvufttdBRR1OllDJaGAOnDLYYnJuCZGrQIboYjJmJ/mWiiYmZqE40g478I5rMoBMTlxhjEtGYxMQFZ8QYYhwMpiC7MJijXSstpRV6o/d+PT/8w6WUnt73vKel9N7fG5L0Ps/393k+z+/7POfhCoGAMb//9BqJRF81wqeFsFEJq4EmIAlkgSYqKBDeEXJCFUdUeTmYTh0NIu5/F87w4W0+5aqQSZOoG6lr/LjGeBZslA+KQBdwExif17MqnLXR0J7Jpl6Ye+Da5/19HeMe2Kf2r8jEoiZkMhRUfPVb11aGwpEnlPA5hS1ArMY+T6vymIYjzx7de3TeA/tUvPuhbCgc/gPwefdeY7fHgBtV2BvK9n8/yAKfIjaVma6fQc3NI0bqIsMK38Sbl9kmkVVl1/O7Dk6b+EIhuwAkw72hGasq7Jpu8Q8Z7+sSpYwBj8xhvz7jSfm+rrdMaJ68Y7EmwFj/pU2q/BRom8N+fUaBfvzjp/9U0wSYa89vDIUC/cCKmnpZPRQ4nk5mdnD25uqaJsBk4n2g3wQ21tLPpRFn3ZpMymxYuPENtdhlQ0qsFQHnExHLlHMDgvpYq8paa3pf0mQiobW4VTkWDYbFmmCt7V0BUatEwuFgqvAeqrpFTCZXe71WizgXsqn8DrK31tY0AXLlRK+i3wTW1dLPW1Rlm6abHlVUa+nwtUqYnyPR3jr287yq7JIHVr45tfTl7OQpnLISkdCck3kTxR/iBnzVWL+uK/UbY6yvo6bhF54HbAHvowlQc1FVsVpTwAMVDsOpU7BmDTz2GFy+DIODoA40NMCDcP/9sG4NPNRfzuXKbHoQLvxeiUVjn1XVgo/Pzuax6BTwN+A/wPsmFDKb2uIdt69qomfpIjYsaaatqY4l8+fRs7zyHdNEMcTd/lFuFYtcHh3jwq08Zwd6uTS6HHb0eCKRCN+pXcMPG2OKfpUeJDFRVdOVDm4lFpTAeBh8Cgi2ArwLvAUcAPpMOGw2t8c7bl/ZTM/SRWxY0kxbUz0tCxbQs6LyHdPRsTCOVUaLJb7b3SFRIFr5Qb5YZtOJXtgLvF67P8hY5QYHDnwQwfzs/Hng90CviUbNptbiwtOOdWxwoohIVHfZIe5bv5IrV29ylrPccXfayrRbJKURvvnwfeiN97k0lOPiBHQnU5wpFzgtZa5kc0z2X+TBl19mGfXVfEyS73T3sB34RnXXzZ9YLPaQiKw3xoRUlbOq9ATgzcP7j+XzgXPFsSAEJ7JOKRlbYtc0NrJ+/XIyhRy5cpmi745NRSJ0N9fw/a5uxkolCkA5Gu5tj8Z48JEeXn3rLOVKl3IcxlS5fHXgpHUcZ4hgPsZPA19S1RcA+vq6jqTTUgbe/+nzB0/EvNSEFYJkCGGtEVasXslmOurStDQkaE3EaU3EaU7Eaa1PsLIuzrW1HSzNj3BtfJzrxSI3SiVulErcKpd5q1BmqOQwNDpO2YGuxnoe6eqgd3SQfDHP1dERruTHuZIfZ/DWEKODl7GF1w7IrKq/BH6lqnN3xYZwFmwErpYLrF2/lG1tbTREwxiEE8PDvHb5KoOlEmN1MVrq69nc0szypYtYv3ghG+vrWBOLsT4eoy0Wo60uwbxIGPP+Y2n1mLMFhs+PwM9+CgP/JFYq4zzh9ItdFEXZRO0egTOqugV3U4QTBs6uWcqGFUuoi4QIGGPTJI3NLbQuWsSGznY2dXawtqOd9mSCZfEYTXVxmmMxGqJR1kQjxIIBotZiBMQIUcehuS5OXTTKquZlxGJxRktjXLp+nevZHGcHBjk3NoHjwMaV3Zy5/C+KjkNTuOpZuGYDx6vqjECL4SjwDnCurytVqGtkbXOM9Wta6Vm2lJ4VLbQv7KKzs4OW+gRN0SjJYJhk1JItR4kb5diQw4mxUV4auMl/8nn6MwVGB/p58MUXWMLD09O/2nO9/ZPHxrwVgHPnwG4UNny3TRvisYfamlm9IM7qpiTtkQjLEklaS+WpK7c/QsFIhGu5QXKOw/O3h+Gohdw47B6EgQk4vdnC7iG4cI77/vAiq1hU5Sfpvz5/8FQVvcm8+NczXM+OcKqpLt2bzXL/0iZ6o+G+vli4M+G1UgPENMKjHR30nTxFHigBTq7jrLN+3bymz8XQyDDnzA3i1LJXGO17kwfO9bOU+V03M71dpmFwnPJpY0ypWCy7bKncUO1YR2zCREIhSUSjJOeIi6qSK5W4WSwy8MIhtjK33cAA8Fvg8VAo9HNVnR6cCwBfwN315YB3DEC29hn3laBfCFhV7vU7+twxTv7jMLFikToqb55eAEVVc8DfVfVXfsSmYoqAeSXeG73JtRuX+P57/aRLJeqA+T7VT4pIK/BNoMt+4ZM/vhlY3McB8GkgX2gB3wT+A7zzVzeQ/9/Tv6tH5zT9fOT2NU0/HlPVUeDGApU3zcPAZ9T9s/x/2P8TXP/pvF9/J96TDyRq/fcLAb39vBrZQJzORUrM5/nL5/RjaSQWxuFD+N8gM/B7JzWTX0/bIj7n/B+ySTrK8+ISNQAAAABJRU5ErkJggg==",
+            };
+
+            // Game state
+            let canvas, ctx;
+            let mosquitoes = [];
+            let score = 0;
+            let lives = INITIAL_LIVES;
+            let gameOver = false;
+            let gameOverHandled = false; // Флаг для отслеживания вызова ввода имени
+            let lastLifeDecreaseTime = 0;
+
+            // Game variables for level system
+            let currentLevel = 1;
+            let mosquitoesKilledInLevel = 0;
+            let mosquitoesRequiredForNextLevel = 10; // Initial requirement
+            let showLevelUpMessage = false;
+            let levelUpTime = 0;
+
+            // Background elements for improved environment
+            const backgroundElements = {
+                trees: [],
+                clouds: [],
+                grass: [],
+            };
+
+            // Highscore system
+            let highScores = [];
+
+            // Function to initialize background elements
+            function initBackgroundElements() {
+                // Generate trees
+                const numTrees = 5;
+                for (let i = 0; i < numTrees; i++) {
+                    backgroundElements.trees.push({
+                        x: Math.random() * canvas.width,
+                        y: canvas.height - (100 + Math.random() * 100),
+                        width: 80 + Math.random() * 40,
+                        height: 120 + Math.random() * 80,
+                    });
+                }
+
+                // Generate clouds
+                const numClouds = 3;
+                for (let i = 0; i < numClouds; i++) {
+                    backgroundElements.clouds.push({
+                        x: Math.random() * canvas.width,
+                        y: 50 + Math.random() * 100,
+                        width: 100 + Math.random() * 150,
+                        height: 60 + Math.random() * 40,
+                        speed: 0.2 + Math.random() * 0.3,
+                    });
+                }
+
+                // Generate grass patches
+                const numGrass = 20;
+                for (let i = 0; i < numGrass; i++) {
+                    backgroundElements.grass.push({
+                        x: Math.random() * canvas.width,
+                        y: canvas.height - 30 - Math.random() * 20,
+                        width: 40 + Math.random() * 30,
+                        height: 30 + Math.random() * 20,
+                    });
+                }
+            }
+
+            // Function to draw the improved background
+            function drawBackground() {
+                // Draw sky gradient
+                const skyGradient = ctx.createLinearGradient(
+                    0,
+                    0,
+                    0,
+                    canvas.height,
+                );
+                skyGradient.addColorStop(0, "#87CEEB"); // Sky blue at top
+                skyGradient.addColorStop(1, "#E0F7FF"); // Lighter blue at bottom
+                ctx.fillStyle = skyGradient;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                // Draw clouds
+                ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+                for (const cloud of backgroundElements.clouds) {
+                    // Move cloud
+                    cloud.x += cloud.speed;
+                    if (cloud.x > canvas.width) {
+                        cloud.x = -cloud.width;
+                    }
+
+                    // Draw cloud as a group of circles
+                    const centerX = cloud.x + cloud.width / 2;
+                    const centerY = cloud.y + cloud.height / 2;
+                    const radiusX = cloud.width / 2;
+                    const radiusY = cloud.height / 2;
+
+                    ctx.beginPath();
+                    ctx.ellipse(
+                        centerX,
+                        centerY,
+                        radiusX,
+                        radiusY,
+                        0,
+                        0,
+                        Math.PI * 2,
+                    );
+                    ctx.fill();
+
+                    // Draw fixed cloud puffs instead of random ones
+                    if (!cloud.puffs) {
+                        // Initialize fixed puffs positions if they don't exist
+                        cloud.puffs = [];
+                        const numPuffs = 5;
+                        for (let i = 0; i < numPuffs; i++) {
+                            cloud.puffs.push({
+                                x: centerX + (Math.random() - 0.5) * radiusX,
+                                y: centerY + (Math.random() - 0.5) * radiusY,
+                                size: ((radiusX + radiusY) / 4) * Math.random(),
+                            });
+                        }
+                    }
+
+                    // Draw the fixed puffs
+                    for (const puff of cloud.puffs) {
+                        ctx.beginPath();
+                        ctx.arc(
+                            puff.x + cloud.speed,
+                            puff.y,
+                            puff.size,
+                            0,
+                            Math.PI * 2,
+                        ); // Move puffs with cloud
+                        ctx.fill();
+                    }
+
+                    // Update puff positions with the cloud
+                    for (const puff of cloud.puffs) {
+                        puff.x += cloud.speed;
+                    }
+                }
+
+                // Draw ground
+                const groundGradient = ctx.createLinearGradient(
+                    0,
+                    canvas.height - 100,
+                    0,
+                    canvas.height,
+                );
+                groundGradient.addColorStop(0, "#8B4513"); // Brown soil
+                groundGradient.addColorStop(1, "#654321"); // Darker soil at bottom
+                ctx.fillStyle = groundGradient;
+                ctx.fillRect(0, canvas.height - 50, canvas.width, 50);
+
+                // Draw grass patches
+                ctx.fillStyle = "#567d46"; // Grass green
+                for (const grass of backgroundElements.grass) {
+                    // Check if this grass patch has fixed blades
+                    if (!grass.blades) {
+                        grass.blades = [];
+                        const numBlades = 7;
+                        const bladeWidth = grass.width / numBlades;
+
+                        for (let i = 0; i < numBlades; i++) {
+                            const bladeX = grass.x + i * bladeWidth;
+                            const bladeHeight =
+                                grass.height * (0.7 + Math.random() * 0.3);
+                            grass.blades.push({
+                                x: bladeX,
+                                y: grass.y,
+                                width: bladeWidth,
+                                height: bladeHeight,
+                            });
+                        }
+                    }
+
+                    // Draw the fixed grass blades
+                    for (const blade of grass.blades) {
+                        ctx.beginPath();
+                        ctx.moveTo(blade.x, grass.y + blade.height);
+                        ctx.lineTo(blade.x + blade.width / 2, grass.y);
+                        ctx.lineTo(
+                            blade.x + blade.width,
+                            grass.y + blade.height,
+                        );
+                        ctx.closePath();
+                        ctx.fill();
+                    }
+                }
+
+                // Draw trees in the background
+                for (const tree of backgroundElements.trees) {
+                    // Draw tree trunk
+                    ctx.fillStyle = "#8B4513"; // Brown
+                    ctx.fillRect(
+                        tree.x - tree.width / 8,
+                        tree.y,
+                        tree.width / 4,
+                        tree.height,
+                    );
+
+                    // Draw tree canopy (foliage)
+                    ctx.fillStyle = "#567d46"; // Forest green
+                    ctx.beginPath();
+                    ctx.arc(
+                        tree.x,
+                        tree.y - tree.height * 0.3,
+                        tree.width * 0.6,
+                        0,
+                        Math.PI * 2,
+                    );
+                    ctx.fill();
+                }
+            }
+
+            // Load high scores from localStorage if available
+            // Функции для работы с cookie
+            function setCookie(name, value, days) {
+                const expires = new Date();
+                expires.setTime(expires.getTime() + days * 24 * 60 * 60 * 1000);
+                document.cookie = name + '=' + encodeURIComponent(value) + ';expires=' + expires.toUTCString() + ';path=/';
+            }
+            
+            function getCookie(name) {
+                const nameEQ = name + '=';
+                const ca = document.cookie.split(';');
+                for (let i = 0; i < ca.length; i++) {
+                    let c = ca[i];
+                    while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+                    if (c.indexOf(nameEQ) === 0) return decodeURIComponent(c.substring(nameEQ.length, c.length));
+                }
+                return null;
+            }
+            
+            // Загрузка лучших результатов из cookies
+            function loadHighScores() {
+                const storedScores = getCookie("mosquitoHighScores");
+                if (storedScores) {
+                    highScores = JSON.parse(storedScores);
+                } else {
+                    // Создаем пустую таблицу рекордов, предустановленные значения не используем
+                    highScores = [];
+                    saveHighScores();
+                }
+            }
+
+            // Сохранение лучших результатов в cookies
+            function saveHighScores() {
+                setCookie(
+                    "mosquitoHighScores",
+                    JSON.stringify(highScores),
+                    30 // Хранить 30 дней
+                );
+            }
+
+            // Add new high score
+            function addHighScore(name, score, level) {
+                highScores.push({ name, score, level });
+                // Sort by score in descending order
+                highScores.sort((a, b) => b.score - a.score);
+                // Keep only top 5
+                if (highScores.length > 5) {
+                    highScores.splice(5);
+                }
+                saveHighScores();
+            }
+
+            // Display game rules
+            function showRules() {
+                // Create rules modal
+                const rulesDiv = document.createElement("div");
+                rulesDiv.id = "rules-modal";
+                rulesDiv.style.position = "fixed";
+                rulesDiv.style.top = "50%";
+                rulesDiv.style.left = "50%";
+                rulesDiv.style.transform = "translate(-50%, -50%)";
+                rulesDiv.style.backgroundColor = "rgba(0, 0, 0, 0.9)";
+                rulesDiv.style.color = "white";
+                rulesDiv.style.padding = "25px";
+                rulesDiv.style.borderRadius = "15px";
+                rulesDiv.style.maxWidth = "80%";
+                rulesDiv.style.maxHeight = "80%";
+                rulesDiv.style.overflowY = "auto";
+                rulesDiv.style.fontSize = "16px";
+                rulesDiv.style.fontFamily = "Arial, sans-serif";
+                rulesDiv.style.lineHeight = "1.5";
+                rulesDiv.style.textAlign = "left";
+                rulesDiv.style.zIndex = "1000";
+                rulesDiv.style.boxShadow = "0 0 20px rgba(255, 102, 0, 0.5)";
+
+                // Rules content
+                let rulesContent = `
+                <h1 style="text-align:center; color:#ff6600; margin-bottom:20px;">Правила игры "Хлопни комара!"</h1>
+                
+                <h2 style="color:#ffcc00; margin-top:25px;">Основные правила</h2>
+                <p>Ваша задача - уничтожать комаров, нажимая на них до того, как они доберутся до опасной зоны внизу экрана.</p>
+                <p>За каждого уничтоженного комара вы получаете очки. Разные типы комаров дают разное количество очков.</p>
+                <p>Если комар достигает красной опасной зоны внизу экрана, он начинает высасывать ваши жизни.</p>
+                <p>Игра заканчивается, когда ваши жизни заканчиваются.</p>
+                
+                <h2 style="color:#ffcc00; margin-top:25px;">Типы комаров</h2>
+                <ul style="padding-left:20px;">
+                    <li style="margin-bottom:10px;"><span style="color:#886644; font-weight:bold;">Обычный комар</span> - самый распространенный тип, 1 жизнь, 1 очко.</li>
+                    <li style="margin-bottom:10px;"><span style="color:#cc3333; font-weight:bold;">Бронированный комар</span> - требует 3 удара для уничтожения, 3 очка.</li>
+                    <li style="margin-bottom:10px;"><span style="color:#3333cc; font-weight:bold;">Ядовитый комар</span> - выделяет ядовитое облако при уничтожении, 4 очка. Ядовитое облако вредит другим комарам.</li>
+                    <li style="margin-bottom:10px;"><span style="color:#ffcc00; font-weight:bold;">Комар-бомба</span> - взрывается при уничтожении, повреждая всех комаров поблизости, 5 очков.</li>
+                    <li style="margin-bottom:10px;"><span style="color:#66cc66; font-weight:bold;">Быстрый комар</span> - двигается вдвое быстрее других, 2 очка.</li>
+                    <li style="margin-bottom:10px;"><span style="color:#aa55aa; font-weight:bold;">Невидимый комар</span> - периодически становится невидимым, 3 очка.</li>
+                    <li style="margin-bottom:10px;"><span style="color:#ff6600; font-weight:bold;">Делящийся комар</span> - при уничтожении разделяется на двух маленьких комаров, 4 очка.</li>
+                </ul>
+                
+                <h2 style="color:#ffcc00; margin-top:25px;">Уровни сложности</h2>
+                <p>Игра автоматически повышает уровень сложности по мере того, как вы уничтожаете комаров.</p>
+                <p>На более высоких уровнях:</p>
+                <ul style="padding-left:20px;">
+                    <li>Появляется больше комаров</li>
+                    <li>Комары двигаются быстрее</li>
+                    <li>Появляются более опасные типы комаров</li>
+                </ul>
+                
+                <h2 style="color:#ffcc00; margin-top:25px;">Советы</h2>
+                <ul style="padding-left:20px;">
+                    <li>Сначала уничтожайте комаров, которые находятся ближе к опасной зоне</li>
+                    <li>Используйте комаров-бомб и ядовитых комаров стратегически - они могут помочь уничтожить других комаров</li>
+                    <li>Чем выше ваш уровень, тем больше очков вы можете заработать</li>
+                </ul>
+            `;
+
+                // Add close button
+                rulesContent +=
+                    '<div style="text-align:center; margin-top:30px;"><button id="close-rules" style="padding:12px 25px; background:#ff6600; border:none; color:white; border-radius:5px; cursor:pointer; font-size:16px; font-weight:bold;">Закрыть</button></div>';
+
+                rulesDiv.innerHTML = rulesContent;
+                document.body.appendChild(rulesDiv);
+
+                // Add event listener for close button
+                document
+                    .getElementById("close-rules")
+                    .addEventListener("click", function () {
+                        document.body.removeChild(rulesDiv);
+                    });
+            }
+
+            // Display high scores table
+            function showHighScores() {
+                // Create separate canvas for high scores
+                const highScoreDiv = document.createElement("div");
+                highScoreDiv.id = "high-scores";
+                highScoreDiv.style.position = "fixed";
+                highScoreDiv.style.top = "50%";
+                highScoreDiv.style.left = "50%";
+                highScoreDiv.style.transform = "translate(-50%, -50%)";
+                highScoreDiv.style.backgroundColor = "rgba(0, 0, 0, 0.8)";
+                highScoreDiv.style.color = "white";
+                highScoreDiv.style.padding = "20px";
+                highScoreDiv.style.borderRadius = "10px";
+                highScoreDiv.style.fontSize = "18px";
+                highScoreDiv.style.fontFamily = "Arial, sans-serif";
+                highScoreDiv.style.textAlign = "center";
+                highScoreDiv.style.zIndex = "1000";
+
+                // Create table header
+                let tableContent = "<h2>ТАБЛИЦА РЕКОРДОВ</h2>";
+                tableContent +=
+                    '<table style="width:100%; border-collapse:collapse; margin-top:10px;">';
+                tableContent += "<tr>";
+                tableContent +=
+                    '<th style="border-bottom:1px solid white; padding:5px;">Имя</th>';
+                tableContent +=
+                    '<th style="border-bottom:1px solid white; padding:5px;">Очки</th>';
+                tableContent +=
+                    '<th style="border-bottom:1px solid white; padding:5px;">Уровень</th>';
+                tableContent += "</tr>";
+
+                // Add high score rows
+                for (const score of highScores) {
+                    tableContent += "<tr>";
+                    tableContent += `<td style="padding:5px;">${score.name}</td>`;
+                    tableContent += `<td style="padding:5px;">${score.score}</td>`;
+                    tableContent += `<td style="padding:5px;">${score.level}</td>`;
+                    tableContent += "</tr>";
+                }
+
+                tableContent += "</table>";
+
+                // Add button to close/restart
+                tableContent +=
+                    '<button id="close-scores" style="margin-top:20px; padding:10px 20px; background:#ff6600; border:none; color:white; border-radius:5px; cursor:pointer;">Закрыть</button>';
+
+                highScoreDiv.innerHTML = tableContent;
+                document.body.appendChild(highScoreDiv);
+
+                // Add event listener for close button
+                document
+                    .getElementById("close-scores")
+                    .addEventListener("click", function () {
+                        document.body.removeChild(highScoreDiv);
+                    });
+            }
+
+            // Function for entering a new high score
+            function promptForHighScore() {
+                // Check if score is high enough
+                const lowestHighScore =
+                    highScores.length < 5
+                        ? 0
+                        : highScores[highScores.length - 1].score;
+                if (score <= lowestHighScore && highScores.length >= 5) {
+                    // Not a high score, just show the high scores
+                    showHighScores();
+                    return;
+                }
+
+                // Create high score entry form
+                const formDiv = document.createElement("div");
+                formDiv.id = "high-score-form";
+                formDiv.style.position = "fixed";
+                formDiv.style.top = "50%";
+                formDiv.style.left = "50%";
+                formDiv.style.transform = "translate(-50%, -50%)";
+                formDiv.style.backgroundColor = "rgba(0, 0, 0, 0.8)";
+                formDiv.style.color = "white";
+                formDiv.style.padding = "20px";
+                formDiv.style.borderRadius = "10px";
+                formDiv.style.textAlign = "center";
+                formDiv.style.zIndex = "1000";
+
+                // Получаем сохраненное имя игрока из cookie
+                const lastPlayerName = getCookie("playerName") || "";
+                
+                formDiv.innerHTML = `
+                <h2>НОВЫЙ РЕКОРД!</h2>
+                <p>Ваш счёт: ${score} очков, Уровень: ${currentLevel}</p>
+                <p>Введите ваше имя (до 12 символов):</p>
+                <input type="text" id="high-score-name" maxlength="12" style="padding:5px; margin:10px 0; text-align:center; width:150px;" value="${lastPlayerName}">
+                <br>
+                <button id="submit-score" style="padding:10px 20px; background:#ff6600; border:none; color:white; border-radius:5px; cursor:pointer;">Сохранить</button>
+            `;
+
+                document.body.appendChild(formDiv);
+
+                // Focus the input и выделить содержимое для удобства ввода
+                const nameInput = document.getElementById("high-score-name");
+                nameInput.focus();
+                nameInput.select();
+
+                // Add event listener for submit
+                document
+                    .getElementById("submit-score")
+                    .addEventListener("click", function () {
+                        const nameInput = document.getElementById("high-score-name");
+                        const name = nameInput.value.toUpperCase() || "AAA";
+                        
+                        // Сохраняем имя в cookie для будущих игр
+                        setCookie("playerName", name, 365); // Храним имя игрока год
+                        
+                        addHighScore(name, score, currentLevel);
+                        document.body.removeChild(formDiv);
+                        showHighScores();
+                    });
+            }
+
+            // Audio contexts and buffers
+            let audioContext;
+            let midiPlayer;
+            let hitSound;
+            let explosionSound;
+            let poisonSound;
+            let levelUpSound;
+            let splitSound;
+            let lifeDecreaseSound;
+
+            // Animation variables
+            let wingAngle = 0;
+            let wingDirection = 1;
+
+            // Initialized when window loads
+            window.onload = function () {
+                canvas = document.getElementById("gameCanvas");
+                ctx = canvas.getContext("2d");
+
+                // Set canvas to full screen
+                resizeCanvas();
+                window.addEventListener("resize", resizeCanvas);
+
+                // Detect if device is iOS (specifically targeting iPhone)
+                const isIOS =
+                    /iPad|iPhone|iPod/.test(navigator.userAgent) &&
+                    !window.MSStream;
+                const isIPhone11 =
+                    isIOS &&
+                    window.devicePixelRatio === 2 &&
+                    window.screen.width === 414 &&
+                    window.screen.height === 896;
+
+                if (isIPhone11) {
+                    console.log(
+                        "iPhone 11 detected, applying specific optimizations",
+                    );
+                    // Apply iPhone 11 specific adjustments
+                    document.body.classList.add("iphone11");
+                }
+
+                // Listen for mouse clicks
+                canvas.addEventListener("click", handleClick);
+
+                // Enhanced touch support for mobile devices
+                canvas.addEventListener("touchstart", handleTouch, {
+                    passive: false,
+                });
+                canvas.addEventListener("touchmove", preventScroll, {
+                    passive: false,
+                });
+                canvas.addEventListener("touchend", preventGhostClick, {
+                    passive: false,
+                });
+
+                // Prevent double-tap zoom on iOS
+                document.addEventListener("gesturestart", preventZoom);
+                document.addEventListener("gesturechange", preventZoom);
+                document.addEventListener("gestureend", preventZoom);
+
+                // For iOS safari full screen handling
+                window.addEventListener("orientationchange", resizeCanvas);
+                window.addEventListener("focusout", resizeCanvas); // Handle virtual keyboard
+
+                // Initialize background elements
+                initBackgroundElements();
+
+                // Initialize audio with iOS optimizations
+                initAudio();
+
+                // Load high scores from localStorage
+                loadHighScores();
+
+                // Handle iOS-specific audio activation
+                document.addEventListener("touchstart", activateAudioContext, {
+                    once: true,
+                });
+
+                // Set up game restart button event listener
+                // Function to restart the game - simply reloads the page
+                function restartGame() {
+                    gameOverHandled = false; // Сбрасываем флаг
+                    window.location.reload();
+                }
+
+                document
+                    .getElementById("restart-button")
+                    .addEventListener("click", function () {
+                        restartGame();
+                    });
+
+                // Set up high scores button event listener
+                document
+                    .getElementById("high-scores-btn")
+                    .addEventListener("click", function () {
+                        showHighScores();
+                    });
+
+                // Set up rules button event listener
+                document
+                    .getElementById("rules-btn")
+                    .addEventListener("click", function () {
+                        showRules();
+                    });
+
+                // Start game loop with throttling for better mobile performance
+                let lastTimestamp = 0;
+                const throttleInterval = 1000 / 60; // Cap at 60 fps
+
+                function throttledGameLoop(timestamp) {
+                    if (timestamp - lastTimestamp >= throttleInterval) {
+                        lastTimestamp = timestamp;
+                        gameLoop(timestamp);
+                    } else {
+                        requestAnimationFrame(throttledGameLoop);
+                    }
+                }
+
+                requestAnimationFrame(throttledGameLoop);
+            };
+
+            // Function to activate audio context for iOS
+            function activateAudioContext() {
+                if (audioContext.state === "suspended") {
+                    audioContext.resume();
+                }
+            }
+
+            // Prevent zoom gestures on iOS
+            function preventZoom(event) {
+                event.preventDefault();
+            }
+
+            // Prevent scrolling on touch move
+            function preventScroll(event) {
+                event.preventDefault();
+            }
+
+            // Prevent ghost clicks after touchend
+            let lastTouchTime = 0;
+            function preventGhostClick(event) {
+                event.preventDefault();
+                lastTouchTime = Date.now();
+            }
+
+            // Handle touch events for mobile devices with improved iPhone support
+            function handleTouch(event) {
+                // Prevent default behavior
+                event.preventDefault();
+
+                // Convert touch to mouse-like event
+                if (event.touches.length > 0) {
+                    const touch = event.touches[0];
+
+                    // Calculate touch position relative to canvas
+                    const rect = canvas.getBoundingClientRect();
+                    const touchX = touch.clientX - rect.left;
+                    const touchY = touch.clientY - rect.top;
+
+                    // Add a small delay for iPhone to prevent multiple rapid touches
+                    if (Date.now() - lastTouchTime > 100) {
+                        const simulatedEvent = {
+                            clientX: touch.clientX,
+                            clientY: touch.clientY,
+                        };
+
+                        // On iOS, create visual feedback for touch
+                        createTouchFeedback(touchX, touchY);
+
+                        // Process the click
+                        handleClick(simulatedEvent);
+
+                        // Update last touch time
+                        lastTouchTime = Date.now();
+                    }
+                }
+            }
+
+            // Visual feedback for touch on mobile
+            function createTouchFeedback(x, y) {
+                // Create a small circle effect at touch point
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(x, y, 30, 0, Math.PI * 2);
+                ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+                ctx.fill();
+                ctx.restore();
+
+                // Animate the touch feedback
+                let opacity = 0.3;
+                let radius = 30;
+
+                const animateTouchFeedback = () => {
+                    opacity -= 0.05;
+                    radius += 2;
+
+                    if (opacity > 0) {
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.arc(x, y, radius, 0, Math.PI * 2);
+                        ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
+                        ctx.fill();
+                        ctx.restore();
+
+                        requestAnimationFrame(animateTouchFeedback);
+                    }
+                };
+
+                requestAnimationFrame(animateTouchFeedback);
+            }
+
+            function resizeCanvas() {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            }
+
+            function initAudio() {
+                // Initialize Web Audio API
+                audioContext = new (window.AudioContext ||
+                    window.webkitAudioContext)();
+
+                // Create hit sound (drum)
+                hitSound = audioContext.createOscillator();
+                hitSound.type = "triangle";
+                hitSound.frequency.setValueAtTime(
+                    150,
+                    audioContext.currentTime,
+                );
+
+                // Create life decrease sound (piano A note)
+                lifeDecreaseSound = audioContext.createOscillator();
+                lifeDecreaseSound.type = "sine";
+                lifeDecreaseSound.frequency.setValueAtTime(
+                    440,
+                    audioContext.currentTime,
+                ); // A4 note
+
+                // Initialize MIDI player for background music (Flight of the Bumblebee)
+                playFlightOfBumblebee();
+            }
+
+            function playFlightOfBumblebee() {
+                // This is a simplified implementation of Flight of the Bumblebee
+                // using Web Audio API oscillators to mimic MIDI
+
+                const bpm = 180;
+                const noteDuration = 60 / bpm; // Duration of one beat in seconds
+
+                // Create base oscillator for the melody
+                const oscillator = audioContext.createOscillator();
+                oscillator.type = "sawtooth"; // Cello-like timbre
+
+                // Create gain node for volume control
+                const gainNode = audioContext.createGain();
+                gainNode.gain.value = 0.1; // Keep it subtle
+
+                // Connect nodes
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                // Flight of the Bumblebee main motif simplified
+                // This is a simplified pattern that will repeat
+                const playNote = (time, freq, duration) => {
+                    oscillator.frequency.setValueAtTime(freq, time);
+                    gainNode.gain.setValueAtTime(0.1, time);
+                    gainNode.gain.setValueAtTime(0.1, time + duration - 0.01);
+                    gainNode.gain.linearRampToValueAtTime(0, time + duration);
+                };
+
+                // Main motif notes (simplified version of Flight of the Bumblebee)
+                const notes = [
+                    { freq: 440, duration: noteDuration / 4 }, // A4
+                    { freq: 466.16, duration: noteDuration / 4 }, // A#4/Bb4
+                    { freq: 493.88, duration: noteDuration / 4 }, // B4
+                    { freq: 523.25, duration: noteDuration / 4 }, // C5
+                    { freq: 554.37, duration: noteDuration / 4 }, // C#5/Db5
+                    { freq: 587.33, duration: noteDuration / 4 }, // D5
+                    { freq: 554.37, duration: noteDuration / 4 }, // C#5/Db5
+                    { freq: 523.25, duration: noteDuration / 4 }, // C5
+                    { freq: 493.88, duration: noteDuration / 4 }, // B4
+                    { freq: 466.16, duration: noteDuration / 4 }, // A#4/Bb4
+                    { freq: 440, duration: noteDuration / 4 }, // A4
+                    { freq: 415.3, duration: noteDuration / 4 }, // G#4/Ab4
+                    { freq: 392, duration: noteDuration / 4 }, // G4
+                    { freq: 415.3, duration: noteDuration / 4 }, // G#4/Ab4
+                    { freq: 440, duration: noteDuration / 4 }, // A4
+                    { freq: 466.16, duration: noteDuration / 4 }, // A#4/Bb4
+                ];
+
+                // Schedule the notes to play in sequence and loop
+                let startTime = audioContext.currentTime;
+                let totalDuration = 0;
+
+                function scheduleNotes() {
+                    for (let i = 0; i < notes.length; i++) {
+                        playNote(
+                            startTime + totalDuration,
+                            notes[i].freq,
+                            notes[i].duration,
+                        );
+                        totalDuration += notes[i].duration;
+                    }
+
+                    // Schedule next iteration to create a continuous loop
+                    setTimeout(scheduleNotes, totalDuration * 1000 - 50);
+                    startTime = audioContext.currentTime;
+                    totalDuration = 0;
+                }
+
+                // Start the oscillator and schedule the notes
+                oscillator.start();
+                scheduleNotes();
+            }
+
+            function playHitSound() {
+                // Play drum sound when mosquito is hit
+                const drumOsc = audioContext.createOscillator();
+                drumOsc.type = "triangle";
+                drumOsc.frequency.setValueAtTime(100, audioContext.currentTime);
+
+                const drumGain = audioContext.createGain();
+                drumGain.gain.setValueAtTime(0.5, audioContext.currentTime);
+                drumGain.gain.exponentialRampToValueAtTime(
+                    0.01,
+                    audioContext.currentTime + 0.3,
+                );
+
+                drumOsc.connect(drumGain);
+                drumGain.connect(audioContext.destination);
+
+                drumOsc.start();
+                drumOsc.stop(audioContext.currentTime + 0.3);
+            }
+
+            function playLifeDecreaseSound() {
+                // Play A note on piano when life decreases
+                const pianoOsc = audioContext.createOscillator();
+                pianoOsc.type = "sine";
+                pianoOsc.frequency.setValueAtTime(
+                    440,
+                    audioContext.currentTime,
+                );
+
+                const pianoGain = audioContext.createGain();
+                pianoGain.gain.setValueAtTime(0.2, audioContext.currentTime);
+                pianoGain.gain.exponentialRampToValueAtTime(
+                    0.01,
+                    audioContext.currentTime + 0.5,
+                );
+
+                pianoOsc.connect(pianoGain);
+                pianoGain.connect(audioContext.destination);
+
+                pianoOsc.start();
+                pianoOsc.stop(audioContext.currentTime + 0.5);
+            }
+
+            function createMosquito(level = 1, forcedType = null) {
+                // Calculate mosquito size based on screen dimensions
+                const baseSize =
+                    Math.min(canvas.width, canvas.height) / MOSQUITO_SIZE_RATIO;
+
+                // Randomly choose mosquito type based on game level
+                let typeIndex;
+
+                if (forcedType !== null) {
+                    // Use forced type if specified (for split mosquitoes)
+                    typeIndex = forcedType;
+                } else {
+                    // Type selection based on level difficulty
+                    if (level <= 2) {
+                        // Early levels - mostly common mosquitoes, occasional special types
+                        const typeChances = [
+                            { type: 0, weight: 70 }, // Common
+                            { type: 4, weight: 20 }, // Fast
+                            { type: 1, weight: 10 }, // Armored
+                        ];
+                        typeIndex = weightedRandomChoice(typeChances);
+                    } else if (level <= 5) {
+                        // Mid levels - introduce more special types
+                        const typeChances = [
+                            { type: 0, weight: 40 }, // Common
+                            { type: 4, weight: 20 }, // Fast
+                            { type: 1, weight: 15 }, // Armored
+                            { type: 5, weight: 15 }, // Invisible
+                            { type: 3, weight: 10 }, // Bomb
+                        ];
+                        typeIndex = weightedRandomChoice(typeChances);
+                    } else {
+                        // Higher levels - all types available, more dangerous ones more common
+                        const typeChances = [
+                            { type: 0, weight: 20 }, // Common
+                            { type: 4, weight: 15 }, // Fast
+                            { type: 1, weight: 15 }, // Armored
+                            { type: 5, weight: 15 }, // Invisible
+                            { type: 3, weight: 15 }, // Bomb
+                            { type: 2, weight: 10 }, // Poison
+                            { type: 6, weight: 10 }, // Split
+                        ];
+                        typeIndex = weightedRandomChoice(typeChances);
+                    }
+                }
+
+                const type = MOSQUITO_TYPES[typeIndex];
+
+                // Calculate adjusted size based on type
+                const size = baseSize * type.size;
+
+                // Calculate random speed factoring in type's speed multiplier and current level
+                const baseSpeed = 2 + level * 0.5; // Increase base speed with level
+                const speedMultiplier = type.speedMultiplier;
+                const finalSpeed = baseSpeed * speedMultiplier;
+
+                const speedX = (Math.random() - 0.5) * finalSpeed;
+                const speedY = (Math.random() - 0.5) * finalSpeed;
+
+                // Calculate initial rotation based on direction of movement
+                const rotation = Math.atan2(speedY, speedX);
+
+                // Create a new mosquito with random position and properties
+                return {
+                    x: Math.random() * (canvas.width - size),
+                    y:
+                        Math.random() *
+                        (canvas.height -
+                            size -
+                            canvas.height * DANGER_ZONE_HEIGHT_RATIO),
+                    size: size,
+                    speedX: speedX,
+                    speedY: speedY,
+                    rotation: rotation, // Store rotation angle for direction
+                    wingOffset: Math.random() * Math.PI, // Random starting point for wing animation
+                    type: typeIndex,
+                    health: type.health,
+                    maxHealth: type.health, // Store original health for display
+                    isFeeding: false, // Flag for blood-sucking state
+                    feedingTime: 0, // Counter for feeding animation
+                    lastLifeDrainTime: 0, // Time tracking for draining player lives
+                    invisible: false, // Current invisibility state
+                    invisibleTime: 0, // Counter for invisibility cycle
+                    opacity: 1, // Visual opacity
+                    level: level, // Store the level this mosquito was created at
+                };
+            }
+
+            // Helper function for weighted random selection
+            function weightedRandomChoice(choices) {
+                // Calculate total weight
+                const totalWeight = choices.reduce(
+                    (sum, choice) => sum + choice.weight,
+                    0,
+                );
+
+                // Get a random value between 0 and totalWeight
+                let randomValue = Math.random() * totalWeight;
+
+                // Find the choice that corresponds to the random value
+                for (const choice of choices) {
+                    randomValue -= choice.weight;
+                    if (randomValue <= 0) {
+                        return choice.type;
+                    }
+                }
+
+                // Fallback
+                return choices[0].type;
+            }
+
+            // Function to update and draw particles
+            function updateAndDrawParticles() {
+                // Update and draw particles
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    const particle = particles[i];
+
+                    // Update position
+                    particle.x += particle.vx;
+                    particle.y += particle.vy;
+
+                    // Apply gravity
+                    particle.vy += 0.1;
+
+                    // Update lifetime
+                    particle.lifetime--;
+
+                    // Update rotation
+                    particle.rotation += particle.rotationSpeed;
+
+                    // Remove dead particles
+                    if (particle.lifetime <= 0) {
+                        particles.splice(i, 1);
+                        continue;
+                    }
+
+                    // Calculate opacity based on lifetime
+                    const opacity = particle.lifetime / particle.maxLifetime;
+
+                    // Draw particle with rotation and fading
+                    ctx.save();
+                    ctx.translate(particle.x, particle.y);
+                    ctx.rotate(particle.rotation + 90);
+                    ctx.globalAlpha = opacity;
+
+                    // Draw particles as small squares or diamonds for more visible effect
+                    ctx.fillStyle = particle.color;
+                    ctx.beginPath();
+                    ctx.rect(
+                        -particle.size / 2,
+                        -particle.size / 2,
+                        particle.size,
+                        particle.size,
+                    );
+                    ctx.fill();
+
+                    ctx.restore();
+                }
+            }
+
+            // Function to update and draw text effects
+            function updateAndDrawTextEffects() {
+                for (let i = textEffects.length - 1; i >= 0; i--) {
+                    const effect = textEffects[i];
+
+                    // Update lifetime
+                    effect.lifetime--;
+
+                    // Remove dead effects
+                    if (effect.lifetime <= 0) {
+                        textEffects.splice(i, 1);
+                        continue;
+                    }
+
+                    // Calculate effect properties based on lifetime
+                    const progress = 1 - effect.lifetime / TEXT_LIFETIME;
+                    effect.opacity = 1 - progress;
+                    effect.fontSize += effect.growth;
+                    effect.y -= 1; // Float upward
+
+                    // Draw text with 3D effect
+                    ctx.save();
+                    ctx.translate(effect.x, effect.y);
+                    ctx.rotate(effect.rotation * progress); // Add slight rotation
+
+                    // Shadow for 3D effect
+                    for (let j = 0; j < 3; j++) {
+                        const offset = 3 - j;
+                        ctx.globalAlpha = effect.opacity * 0.3;
+                        ctx.font = `bold ${effect.fontSize}px Arial`;
+                        ctx.fillStyle = "rgba(0,0,0,0.5)";
+                        ctx.textAlign = "center";
+                        ctx.textBaseline = "middle";
+                        ctx.fillText(effect.text, offset, offset);
+                    }
+
+                    // Main text
+                    ctx.globalAlpha = effect.opacity;
+                    ctx.font = `bold ${effect.fontSize}px Arial`;
+                    ctx.fillStyle = effect.gradient;
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillText(effect.text, 0, 0);
+
+                    // Stroke
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = "white";
+                    ctx.strokeText(effect.text, 0, 0);
+
+                    ctx.restore();
+                }
+            }
+
+            // Function to play new sound effects
+            function playExplosionSound() {
+                const explosionOsc = audioContext.createOscillator();
+                explosionOsc.type = "triangle";
+                explosionOsc.frequency.value = 150;
+
+                const gainNode = audioContext.createGain();
+                gainNode.gain.value = 0.5;
+
+                explosionOsc.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                explosionOsc.start();
+
+                // Add some randomness to the frequency for more explosive effect
+                explosionOsc.frequency.setValueAtTime(
+                    150,
+                    audioContext.currentTime,
+                );
+                explosionOsc.frequency.linearRampToValueAtTime(
+                    50,
+                    audioContext.currentTime + 0.1,
+                );
+                explosionOsc.frequency.linearRampToValueAtTime(
+                    100,
+                    audioContext.currentTime + 0.2,
+                );
+                explosionOsc.frequency.linearRampToValueAtTime(
+                    30,
+                    audioContext.currentTime + 0.3,
+                );
+
+                // Fade out
+                gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(
+                    0.01,
+                    audioContext.currentTime + 0.5,
+                );
+
+                explosionOsc.stop(audioContext.currentTime + 0.5);
+            }
+
+            function playPoisonSound() {
+                const poisonOsc = audioContext.createOscillator();
+                poisonOsc.type = "sine";
+                poisonOsc.frequency.value = 600;
+
+                const gainNode = audioContext.createGain();
+                gainNode.gain.value = 0.2;
+
+                // Add a filter for a bubbling effect
+                const filter = audioContext.createBiquadFilter();
+                filter.type = "lowpass";
+                filter.frequency.value = 800;
+                filter.Q.value = 10;
+
+                poisonOsc.connect(filter);
+                filter.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                poisonOsc.start();
+
+                // Create bubbling sound effect
+                for (let i = 0; i < 5; i++) {
+                    const time = audioContext.currentTime + i * 0.08;
+                    filter.frequency.setValueAtTime(400, time);
+                    filter.frequency.exponentialRampToValueAtTime(
+                        1200,
+                        time + 0.05,
+                    );
+                    filter.frequency.setValueAtTime(1200, time + 0.05);
+                    filter.frequency.exponentialRampToValueAtTime(
+                        400,
+                        time + 0.08,
+                    );
+                }
+
+                // Fade out
+                gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(
+                    0.01,
+                    audioContext.currentTime + 0.4,
+                );
+
+                poisonOsc.stop(audioContext.currentTime + 0.4);
+            }
+
+            function playSplitSound() {
+                const splitOsc = audioContext.createOscillator();
+                splitOsc.type = "sawtooth";
+                splitOsc.frequency.value = 350;
+
+                const gainNode = audioContext.createGain();
+                gainNode.gain.value = 0.2;
+
+                splitOsc.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                splitOsc.start();
+
+                // Create splitting effect with frequency shifts
+                splitOsc.frequency.setValueAtTime(
+                    350,
+                    audioContext.currentTime,
+                );
+                splitOsc.frequency.linearRampToValueAtTime(
+                    500,
+                    audioContext.currentTime + 0.1,
+                );
+                splitOsc.frequency.linearRampToValueAtTime(
+                    200,
+                    audioContext.currentTime + 0.2,
+                );
+
+                // Fade out
+                gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(
+                    0.01,
+                    audioContext.currentTime + 0.3,
+                );
+
+                splitOsc.stop(audioContext.currentTime + 0.3);
+            }
+
+            function playLevelUpSound() {
+                // Create a sequence of ascending notes
+                const notes = [440, 554, 659, 880];
+
+                for (let i = 0; i < notes.length; i++) {
+                    const levelOsc = audioContext.createOscillator();
+                    levelOsc.type = "square";
+                    levelOsc.frequency.value = notes[i];
+
+                    const gainNode = audioContext.createGain();
+                    gainNode.gain.value = 0.2;
+
+                    levelOsc.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+
+                    // Start note at the right time in sequence
+                    const startTime = audioContext.currentTime + i * 0.1;
+                    levelOsc.start(startTime);
+
+                    // Fade out each note
+                    gainNode.gain.setValueAtTime(0.2, startTime);
+                    gainNode.gain.exponentialRampToValueAtTime(
+                        0.01,
+                        startTime + 0.1,
+                    );
+
+                    levelOsc.stop(startTime + 0.1);
+                }
+            }
+
+            // Function to create a poison cloud effect when poison mosquitoes are destroyed
+            function createPoisonCloud(x, y, radius) {
+                const numParticles = 30;
+                const cloudLifetime = 180; // 3 seconds at 60fps
+
+                // Add poison particle effect
+                for (let i = 0; i < numParticles; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const distance = Math.random() * radius;
+                    const px = x + Math.cos(angle) * distance;
+                    const py = y + Math.sin(angle) * distance;
+
+                    particles.push({
+                        x: px,
+                        y: py,
+                        speedX: (Math.random() - 0.5) * 0.5,
+                        speedY: (Math.random() - 0.5) * 0.5 - 0.2, // Slight upward drift
+                        size: 10 + Math.random() * 10,
+                        color: "rgba(0, 255, 100, 0.5)",
+                        rotation: Math.random() * Math.PI * 2,
+                        rotationSpeed: (Math.random() - 0.5) * 0.1,
+                        lifetime: cloudLifetime * (0.5 + Math.random() * 0.5),
+                        maxLifetime: cloudLifetime,
+                        isPoisonCloud: true,
+                    });
+                }
+            }
+
+            function gameLoop(timestamp) {
+                // Check if game is over
+                if (gameOver) {
+                    document.getElementById("game-over").style.display =
+                        "block";
+                    document.getElementById("final-score").textContent =
+                        `Ваш результат: ${score} очков, Уровень: ${currentLevel}`;
+                    document.getElementById("restart-button").style.display =
+                        "block";
+                    document.getElementById("high-scores-btn").style.display =
+                        "block";
+                    
+                    // Проверяем, если игра только что закончилась, предлагаем ввести имя для рекорда
+                    if (!gameOverHandled) {
+                        gameOverHandled = true; // Устанавливаем флаг, чтобы не предлагать повторно
+                        setTimeout(promptForHighScore, 1000); // Добавляем небольшую задержку для лучшего UX
+                    }
+                    
+                    return;
+                }
+
+                // Clear canvas
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // Draw improved background
+                drawBackground();
+
+                // Draw danger zone
+                const dangerZoneHeight =
+                    canvas.height * DANGER_ZONE_HEIGHT_RATIO;
+                ctx.fillStyle = "rgba(255, 50, 50, 0.3)";
+                ctx.fillRect(
+                    0,
+                    canvas.height - dangerZoneHeight,
+                    canvas.width,
+                    dangerZoneHeight,
+                );
+
+                // Draw danger zone warning stripes
+                const stripeWidth = 30;
+                const numStripes = Math.ceil(canvas.width / stripeWidth);
+                for (let i = 0; i < numStripes; i++) {
+                    if (i % 2 === 0) {
+                        ctx.fillStyle = "rgba(255, 255, 0, 0.4)";
+                        ctx.fillRect(
+                            i * stripeWidth,
+                            canvas.height - dangerZoneHeight,
+                            stripeWidth,
+                            10,
+                        );
+                    }
+                }
+
+                // Create new mosquitoes if needed, adjust based on level
+                const maxMosquitoesForLevel =
+                    MAX_MOSQUITOES + Math.floor(currentLevel / 2);
+                if (mosquitoes.length < maxMosquitoesForLevel) {
+                    const spawnChance = 0.03 + currentLevel * 0.01; // Increase spawn rate with level
+                    if (Math.random() < spawnChance) {
+                        mosquitoes.push(createMosquito(currentLevel));
+                    }
+                }
+
+                // Update wing animation
+                wingAngle += 0.2 * wingDirection;
+                if (wingAngle > 0.5 || wingAngle < -0.5) {
+                    wingDirection *= -1;
+                }
+
+                // Update and draw particles
+                updateAndDrawParticles();
+
+                // Update and draw text effects
+                updateAndDrawTextEffects();
+
+                // Draw and update mosquitoes
+                for (let i = mosquitoes.length - 1; i >= 0; i--) {
+                    const mosquito = mosquitoes[i];
+
+                    // Update position if not feeding
+                    if (!mosquito.isFeeding) {
+                        mosquito.x += mosquito.speedX;
+                        mosquito.y += mosquito.speedY;
+
+                        // Update rotation based on direction of movement
+                        if (
+                            Math.abs(mosquito.speedX) > 0.1 ||
+                            Math.abs(mosquito.speedY) > 0.1
+                        ) {
+                            // Target rotation based on velocity
+                            const targetRotation = Math.atan2(
+                                mosquito.speedY,
+                                mosquito.speedX,
+                            );
+
+                            // Smoothly interpolate current rotation to target
+                            // This creates a more natural turning effect
+                            const rotationDiff =
+                                targetRotation - mosquito.rotation;
+
+                            // Handle angle wrapping
+                            let rotationChange = rotationDiff;
+                            if (rotationDiff > Math.PI)
+                                rotationChange = rotationDiff - Math.PI * 2;
+                            if (rotationDiff < -Math.PI)
+                                rotationChange = rotationDiff + Math.PI * 2;
+
+                            // Apply rotation gradually
+                            mosquito.rotation += rotationChange * 0.1;
+                        }
+
+                        // Bounce off walls
+                        if (
+                            mosquito.x < 0 ||
+                            mosquito.x > canvas.width - mosquito.size
+                        ) {
+                            mosquito.speedX *= -1;
+                        }
+                        if (
+                            mosquito.y < 0 ||
+                            mosquito.y > canvas.height - mosquito.size
+                        ) {
+                            mosquito.speedY *= -1;
+                        }
+                    }
+
+                    // Check if mosquito is in danger zone
+                    if (
+                        mosquito.y + mosquito.size >
+                        canvas.height - dangerZoneHeight
+                    ) {
+                        // Stop mosquito movement and set feeding state
+                        if (!mosquito.isFeeding) {
+                            mosquito.isFeeding = true;
+                            mosquito.speedX = 0;
+                            mosquito.speedY = 0;
+                            // Set rotation to point downward when feeding
+                            mosquito.rotation = Math.PI / 2;
+                        }
+
+                        // Increase feeding time
+                        mosquito.feedingTime++;
+
+                        // Drain player lives based on mosquito size (bigger mosquitoes drain more)
+                        // Calculate life drain interval - smaller value for bigger mosquitoes
+                        const drainInterval = Math.max(
+                            30,
+                            60 - Math.floor(mosquito.size),
+                        );
+
+                        // Drain life based on mosquito type/size
+                        if (mosquito.feedingTime % drainInterval === 0) {
+                            // Determine how many lives to drain based on mosquito type
+                            const typeData = MOSQUITO_TYPES[mosquito.type];
+                            const livesDrained = Math.ceil(typeData.size);
+
+                            // Decrease player lives
+                            lives -= livesDrained;
+                            playLifeDecreaseSound();
+
+                            // Create blood drawing effect
+                            createBloodDrawingEffect(
+                                mosquito.x + mosquito.size / 2,
+                                mosquito.y + mosquito.size / 2,
+                            );
+
+                            // Check if game is over
+                            if (lives < 1) {
+                                gameOver = true;
+                            }
+                        }
+                    } else {
+                        // Reset feeding state if mosquito leaves the danger zone
+                        if (mosquito.isFeeding) {
+                            mosquito.isFeeding = false;
+                            mosquito.feedingTime = 0;
+
+                            // Resume movement with random speed
+                            mosquito.speedX = (Math.random() - 0.5) * 4;
+                            mosquito.speedY = (Math.random() - 0.5) * 4;
+                        }
+                    }
+
+                    // Draw mosquito
+                    drawMosquito(mosquito, wingAngle + mosquito.wingOffset);
+                }
+
+                // Draw score and lives
+                drawUI();
+
+                // Continue game loop
+                requestAnimationFrame(gameLoop);
+            }
+
+            function createBloodDrawingEffect(x, y) {
+                // Create blood particles flowing upward (getting sucked by mosquito)
+                const particleCount = 8 + Math.floor(Math.random() * 6);
+
+                for (let i = 0; i < particleCount; i++) {
+                    // Blood particles should move upward in a narrower angle
+                    const angle =
+                        -Math.PI / 2 + ((Math.random() - 0.5) * Math.PI) / 4; // Mostly upward
+                    const speed = 0.5 + Math.random() * 2;
+                    const size = 2 + Math.random() * 3;
+
+                    // Blood particle colors (various shades of red)
+                    const colors = ["#ff0000", "#dd0000", "#aa0000", "#880000"];
+                    const color =
+                        colors[Math.floor(Math.random() * colors.length)];
+
+                    particles.push({
+                        x: x + (Math.random() - 0.5) * 10, // Slight horizontal variation
+                        y: y + 10 + Math.random() * 10, // Start below the mosquito
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed,
+                        size: size,
+                        color: color,
+                        lifetime: 20 + Math.floor(Math.random() * 20),
+                        maxLifetime: 20 + Math.floor(Math.random() * 20),
+                        rotation: Math.random() * Math.PI * 2,
+                        rotationSpeed: (Math.random() - 0.5) * 0.2,
+                    });
+                }
+            }
+
+            function drawMosquito(mosquito, wingAngle) {
+                const {
+                    x,
+                    y,
+                    size,
+                    type,
+                    health,
+                    maxHealth,
+                    rotation,
+                    isFeeding,
+                } = mosquito;
+                const s = size * 0.8; // Adjust size for better proportions
+                const typeData = MOSQUITO_TYPES[type];
+
+                // Save context state
+                ctx.save();
+                ctx.translate(x + s / 2, y + s / 2);
+
+                // Apply rotation based on movement direction
+                ctx.rotate(rotation + 45);
+
+                // 3D isometric transformation (approx 30-degree rotation around both X and Y axes)
+                // This skews the drawing to create pseudo-3D effect
+                const skewX = -0.3; // Horizontal skew factor
+                const skewY = 0.2; // Vertical skew factor
+                ctx.transform(1, skewY, skewX, 1, 0, 0); // Apply transformation matrix
+
+                // Shadow for 3D effect
+                ctx.save();
+                ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
+                ctx.translate(s / 10, s / 10);
+                ctx.scale(1.03, 1.03);
+                ctx.beginPath();
+                ctx.ellipse(0, 0, s / 3, s / 2, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+
+                // For bomb mosquito, draw a pulsing glow effect
+                if (typeData.isBomb) {
+                    const pulseAmount = Math.sin(Date.now() / 200) * 0.2 + 0.8; // Pulsing effect
+                    ctx.fillStyle = "rgba(255, 255, 0, 0.3)";
+                    ctx.beginPath();
+                    ctx.arc(0, 0, (s / 1.5) * pulseAmount, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                // 3D Body (with highlight and shadow)
+                // Draw body with gradient for 3D effect
+                const bodyGradient = ctx.createLinearGradient(
+                    -s / 3,
+                    -s / 2,
+                    s / 3,
+                    s / 2,
+                );
+                bodyGradient.addColorStop(0, typeData.secondaryColor); // Darker shade for shadow
+                bodyGradient.addColorStop(0.4, typeData.color);
+                bodyGradient.addColorStop(0.7, typeData.color);
+                bodyGradient.addColorStop(1, typeData.secondaryColor);
+
+                ctx.fillStyle = bodyGradient;
+                ctx.beginPath();
+                ctx.ellipse(0, 0, s / 3, s / 2, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Highlight on body (light reflection)
+                ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
+                ctx.beginPath();
+                ctx.ellipse(
+                    -s / 10,
+                    -s / 6,
+                    s / 5,
+                    s / 5,
+                    Math.PI / 3,
+                    0,
+                    Math.PI,
+                );
+                ctx.fill();
+
+                // For bomb mosquito, draw bomb pattern
+                if (typeData.isBomb) {
+                    // Draw bomb symbol on body
+                    ctx.font = `bold ${s / 3}px Arial`;
+                    ctx.fillStyle = typeData.wingColor;
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillText("💣", 0, 0);
+                }
+
+                // Wings (animated) with 3D transparency effect
+                const wingGradient = ctx.createRadialGradient(
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    s / 2,
+                );
+                wingGradient.addColorStop(0, typeData.wingColor);
+                wingGradient.addColorStop(1, "rgba(255, 255, 255, 0.3)");
+                ctx.fillStyle = wingGradient;
+
+                // Left wing - with 3D perspective
+                ctx.save();
+                ctx.rotate(wingAngle);
+                ctx.beginPath();
+                ctx.ellipse(
+                    -s / 3,
+                    0,
+                    s / 3,
+                    s / 4,
+                    Math.PI / 4,
+                    0,
+                    Math.PI * 2,
+                );
+                ctx.fill();
+
+                // Wing veins for more detail
+                ctx.strokeStyle = "rgba(0, 0, 0, 0.2)";
+                ctx.lineWidth = s / 60;
+                ctx.beginPath();
+                ctx.moveTo(-s / 5, -s / 8);
+                ctx.lineTo(-s / 3 - s / 4, -s / 20);
+                ctx.moveTo(-s / 5, 0);
+                ctx.lineTo(-s / 3 - s / 4, s / 30);
+                ctx.moveTo(-s / 5, s / 8);
+                ctx.lineTo(-s / 3 - s / 4, s / 5);
+                ctx.stroke();
+                ctx.restore();
+
+                // Right wing - with 3D perspective
+                ctx.save();
+                ctx.rotate(-wingAngle);
+                ctx.beginPath();
+                ctx.ellipse(
+                    s / 3,
+                    0,
+                    s / 3,
+                    s / 4,
+                    -Math.PI / 4,
+                    0,
+                    Math.PI * 2,
+                );
+                ctx.fill();
+
+                // Wing veins for more detail
+                ctx.strokeStyle = "rgba(0, 0, 0, 0.2)";
+                ctx.lineWidth = s / 60;
+                ctx.beginPath();
+                ctx.moveTo(s / 5, -s / 8);
+                ctx.lineTo(s / 3 + s / 4, -s / 20);
+                ctx.moveTo(s / 5, 0);
+                ctx.lineTo(s / 3 + s / 4, s / 30);
+                ctx.moveTo(s / 5, s / 8);
+                ctx.lineTo(s / 3 + s / 4, s / 5);
+                ctx.stroke();
+                ctx.restore();
+
+                // 3D Proboscis (needle-like structure with highlight)
+                const probGradient = ctx.createLinearGradient(
+                    -s / 60,
+                    -s / 2.5,
+                    s / 60,
+                    -s / 1.3,
+                );
+                probGradient.addColorStop(0, "#333");
+                probGradient.addColorStop(0.5, "#000");
+                probGradient.addColorStop(1, "#333");
+
+                // If feeding, make proboscis longer and add blood
+                if (isFeeding) {
+                    const feedingPulse = Math.sin(Date.now() / 200) * 0.2 + 0.8; // Pulsing effect for feeding
+
+                    // Longer proboscis when feeding
+                    ctx.strokeStyle = probGradient;
+                    ctx.lineWidth = s / 20;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -s / 2.5);
+                    ctx.lineTo(0, -s / 1.1); // Longer when feeding
+                    ctx.stroke();
+
+                    // Draw blood on proboscis
+                    const bloodGradient = ctx.createLinearGradient(
+                        -s / 60,
+                        -s / 1.5,
+                        s / 60,
+                        -s / 1.1,
+                    );
+                    bloodGradient.addColorStop(0, "rgba(255, 0, 0, 0.8)");
+                    bloodGradient.addColorStop(1, "rgba(190, 0, 0, 0.9)");
+
+                    ctx.strokeStyle = bloodGradient;
+                    ctx.lineWidth = (s / 25) * feedingPulse; // Pulsating blood flow
+                    ctx.beginPath();
+                    ctx.moveTo(0, -s / 1.5);
+                    ctx.lineTo(0, -s / 1.1);
+                    ctx.stroke();
+
+                    // Blood droplet at tip
+                    ctx.fillStyle = "rgba(255, 0, 0, 0.9)";
+                    ctx.beginPath();
+                    ctx.arc(
+                        0,
+                        -s / 1.1,
+                        (s / 40) * feedingPulse,
+                        0,
+                        Math.PI * 2,
+                    );
+                    ctx.fill();
+                } else {
+                    // Normal proboscis when not feeding
+                    ctx.strokeStyle = probGradient;
+                    ctx.lineWidth = s / 20;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -s / 2.5);
+                    ctx.lineTo(0, -s / 1.3);
+                    ctx.stroke();
+                }
+
+                // Highlight on proboscis
+                ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+                ctx.lineWidth = s / 60;
+                ctx.beginPath();
+                ctx.moveTo(-s / 60, -s / 2.5);
+                ctx.lineTo(-s / 60, isFeeding ? -s / 1.1 : -s / 1.3);
+                ctx.stroke();
+
+                // 3D Eyes with highlights
+                ctx.fillStyle = typeData.isBomb ? "#FF0000" : "#000";
+                ctx.beginPath();
+                ctx.arc(-s / 6, -s / 3, s / 12, 0, Math.PI * 2);
+                ctx.arc(s / 6, -s / 3, s / 12, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Eye highlights
+                ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+                ctx.beginPath();
+                ctx.arc(
+                    -s / 6 + s / 30,
+                    -s / 3 - s / 30,
+                    s / 40,
+                    0,
+                    Math.PI * 2,
+                );
+                ctx.arc(
+                    s / 6 + s / 30,
+                    -s / 3 - s / 30,
+                    s / 40,
+                    0,
+                    Math.PI * 2,
+                );
+                ctx.fill();
+
+                // 3D Legs with gradients and joints (6 legs, 3 on each side)
+                const legGradient = ctx.createLinearGradient(
+                    -s / 2,
+                    -s / 4,
+                    s / 2,
+                    s / 2,
+                );
+                legGradient.addColorStop(0, typeData.secondaryColor);
+                legGradient.addColorStop(0.5, typeData.color);
+                legGradient.addColorStop(1, typeData.secondaryColor);
+
+                ctx.strokeStyle = legGradient;
+                ctx.lineWidth = s / 30;
+
+                // Draw 3D legs with joints
+                function drawLeg(x1, y1, x2, y2, x3, y3) {
+                    ctx.beginPath();
+                    ctx.moveTo(x1, y1);
+                    ctx.lineTo(x2, y2);
+                    ctx.lineTo(x3, y3);
+                    ctx.stroke();
+
+                    // Draw joints as small circles
+                    ctx.fillStyle = typeData.secondaryColor;
+                    ctx.beginPath();
+                    ctx.arc(x2, y2, s / 50, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                // Left legs with 3D effect
+                drawLeg(-s / 4, -s / 6, -s / 2, -s / 4, -s / 1.5, -s / 10);
+                drawLeg(-s / 4, 0, -s / 2, s / 8, -s / 1.5, s / 4);
+                drawLeg(-s / 4, s / 6, -s / 2, s / 3, -s / 1.5, s / 2);
+
+                // Right legs with 3D effect
+                drawLeg(s / 4, -s / 6, s / 2, -s / 4, s / 1.5, -s / 10);
+                drawLeg(s / 4, 0, s / 2, s / 8, s / 1.5, s / 4);
+                drawLeg(s / 4, s / 6, s / 2, s / 3, s / 1.5, s / 2);
+
+                // Display health above mosquito with 3D text
+                ctx.font = `bold ${s / 4}px Arial`;
+                ctx.textAlign = "center";
+                ctx.textBaseline = "alphabetic";
+
+                // 3D text effect for health display
+                const textY = -s / 1.2;
+                let healthText = `${health}/${maxHealth}`;
+
+                if (typeData.isBomb) {
+                    healthText = `💣 ${healthText}`;
+                    // Shadow
+                    ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+                    ctx.fillText(healthText, s / 30, textY + s / 30);
+
+                    // Text
+                    ctx.fillStyle = "yellow";
+                    ctx.strokeStyle = "black";
+                    ctx.lineWidth = s / 30;
+                    ctx.strokeText(healthText, 0, textY);
+                    ctx.fillText(healthText, 0, textY);
+                } else {
+                    // Shadow
+                    ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+                    ctx.fillText(healthText, s / 30, textY + s / 30);
+
+                    // Text
+                    ctx.fillStyle = "white";
+                    ctx.strokeStyle = "black";
+                    ctx.lineWidth = s / 30;
+                    ctx.strokeText(healthText, 0, textY);
+                    ctx.fillText(healthText, 0, textY);
+                }
+
+                // Restore context state
+                ctx.restore();
+            }
+
+            function handleClick(event) {
+                if (gameOver) return;
+
+                // Get click coordinates relative to canvas
+                const rect = canvas.getBoundingClientRect();
+                const clickX = event.clientX - rect.left;
+                const clickY = event.clientY - rect.top;
+
+                // Check if any mosquito was hit
+                for (let i = mosquitoes.length - 1; i >= 0; i--) {
+                    const mosquito = mosquitoes[i];
+                    const mosquitoCenter = {
+                        x: mosquito.x + mosquito.size / 2,
+                        y: mosquito.y + mosquito.size / 2,
+                    };
+
+                    // Check if click is within mosquito's hitbox (much larger hit area for easier mobile play)
+                    const distance = Math.sqrt(
+                        Math.pow(clickX - mosquitoCenter.x, 2) +
+                            Math.pow(clickY - mosquitoCenter.y, 2),
+                    );
+
+                    if (distance < mosquito.size * 1.5) {
+                        // Significantly increased hit area for better touch control
+                        // Reduce mosquito health
+                        mosquito.health--;
+                        playHitSound();
+
+                        // Display hit effect ("БАХ!") with appropriate type
+                        createHitEffect(clickX, clickY, mosquito.type);
+
+                        // Check if mosquito is dead
+                        if (mosquito.health <= 0) {
+                            // Check if this was a bomb mosquito
+                            if (MOSQUITO_TYPES[mosquito.type].isBomb) {
+                                // Create explosion effect
+                                createExplosionEffect(
+                                    mosquitoCenter.x,
+                                    mosquitoCenter.y,
+                                );
+
+                                // Damage nearby mosquitoes
+                                explodeNearbyMosquitoes(
+                                    mosquitoCenter.x,
+                                    mosquitoCenter.y,
+                                );
+                            } else {
+                                // Create death particles with mosquito's type
+                                // Add more particles at death for a more satisfying effect
+                                const particleCount =
+                                    15 + Math.floor(Math.random() * 10);
+                                for (let j = 0; j < particleCount; j++) {
+                                    const angle = Math.random() * Math.PI * 2;
+                                    const speed = 2 + Math.random() * 3;
+                                    const size = 2 + Math.random() * 6;
+                                    const lifetime =
+                                        PARTICLE_LIFETIME *
+                                        (0.7 + Math.random() * 0.6);
+
+                                    // Use the appropriate color based on mosquito type
+                                    const typeData =
+                                        MOSQUITO_TYPES[mosquito.type];
+                                    const colorOptions = [
+                                        typeData.color,
+                                        typeData.secondaryColor,
+                                        typeData.wingColor,
+                                    ];
+
+                                    const color =
+                                        colorOptions[
+                                            Math.floor(
+                                                Math.random() *
+                                                    colorOptions.length,
+                                            )
+                                        ];
+
+                                    particles.push({
+                                        x: mosquitoCenter.x,
+                                        y: mosquitoCenter.y,
+                                        vx: Math.cos(angle) * speed,
+                                        vy: Math.sin(angle) * speed,
+                                        size: size,
+                                        color: color,
+                                        lifetime: lifetime,
+                                        maxLifetime: lifetime,
+                                        rotation: Math.random() * Math.PI * 2,
+                                        rotationSpeed:
+                                            (Math.random() - 0.5) * 0.3,
+                                    });
+                                }
+                            }
+
+                            // Remove mosquito and add score
+                            mosquitoes.splice(i, 1);
+                            score++;
+
+                            // Add to level kill count for progression
+                            mosquitoesKilledInLevel++;
+
+                            // Check if player has reached enough points for next level
+                            if (
+                                mosquitoesKilledInLevel >=
+                                mosquitoesRequiredForNextLevel
+                            ) {
+                                // Level up!
+                                currentLevel++;
+
+                                // Reset kills for next level
+                                mosquitoesKilledInLevel = 0;
+
+                                // Increase requirement for next level
+                                mosquitoesRequiredForNextLevel =
+                                    10 + currentLevel * 5;
+
+                                // Show level up message
+                                showLevelUpMessage = true;
+                                levelUpTime = 120; // Display for 2 seconds at 60fps
+
+                                // Play level up sound
+                                playLevelUpSound();
+                            }
+                        }
+
+                        break; // Only hit one mosquito at a time
+                    }
+                }
+            }
+
+            function explodeNearbyMosquitoes(x, y) {
+                // Find and damage mosquitoes within BOMB_RADIUS
+                let mosquitoesKilled = 0;
+
+                for (let i = mosquitoes.length - 1; i >= 0; i--) {
+                    const mosquito = mosquitoes[i];
+                    const mosquitoCenter = {
+                        x: mosquito.x + mosquito.size / 2,
+                        y: mosquito.y + mosquito.size / 2,
+                    };
+
+                    // Calculate distance to explosion center
+                    const distance = Math.sqrt(
+                        Math.pow(x - mosquitoCenter.x, 2) +
+                            Math.pow(y - mosquitoCenter.y, 2),
+                    );
+
+                    // If mosquito is within explosion radius, kill it
+                    if (distance < BOMB_RADIUS) {
+                        mosquitoes.splice(i, 1);
+                        mosquitoesKilled++;
+                    }
+                }
+
+                // Add score for killed mosquitoes
+                score += mosquitoesKilled;
+
+                // Add to level progression counter
+                mosquitoesKilledInLevel += mosquitoesKilled;
+
+                // Check if player has reached enough points for next level
+                if (mosquitoesKilledInLevel >= mosquitoesRequiredForNextLevel) {
+                    // Level up!
+                    currentLevel++;
+
+                    // Reset kills for next level
+                    mosquitoesKilledInLevel = 0;
+
+                    // Increase requirement for next level
+                    mosquitoesRequiredForNextLevel = 10 + currentLevel * 5;
+
+                    // Show level up message
+                    showLevelUpMessage = true;
+                    levelUpTime = 120; // Display for 2 seconds at 60fps
+
+                    // Play level up sound
+                    playLevelUpSound();
+                }
+
+                return mosquitoesKilled;
+            }
+
+            function createExplosionEffect(x, y) {
+                // Create visual explosion effect with 3D appearance
+                const explosionRadius = BOMB_RADIUS;
+
+                // Create concentric explosion rings with gradient for 3D effect
+                const gradient = ctx.createRadialGradient(
+                    x,
+                    y,
+                    0,
+                    x,
+                    y,
+                    explosionRadius,
+                );
+                gradient.addColorStop(0, "rgba(255, 255, 255, 0.9)"); // Bright white center
+                gradient.addColorStop(0.1, "rgba(255, 255, 0, 0.8)"); // Yellow inner
+                gradient.addColorStop(0.3, "rgba(255, 165, 0, 0.6)"); // Orange middle
+                gradient.addColorStop(0.7, "rgba(255, 0, 0, 0.4)"); // Red outer
+                gradient.addColorStop(1, "rgba(100, 0, 0, 0)"); // Fade to transparent
+
+                // Initial explosion flash
+                ctx.beginPath();
+                ctx.arc(x, y, explosionRadius * 0.2, 0, Math.PI * 2);
+                ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+                ctx.fill();
+
+                // Create explosion particles
+                const particleCount = 60 + Math.floor(Math.random() * 40);
+                for (let i = 0; i < particleCount; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const distance = Math.random() * explosionRadius;
+                    const speed = 2 + Math.random() * 6;
+                    const size = 3 + Math.random() * 8;
+
+                    // Use colors from yellow to red for explosion particles
+                    const colors = [
+                        "#ffffff",
+                        "#ffffaa",
+                        "#ffff00",
+                        "#ffcc00",
+                        "#ff9900",
+                        "#ff6600",
+                        "#ff3300",
+                        "#ff0000",
+                    ];
+                    const color =
+                        colors[Math.floor(Math.random() * colors.length)];
+
+                    // Create particle with random rotation
+                    particles.push({
+                        x: x + Math.cos(angle) * distance * 0.3, // Start closer to center
+                        y: y + Math.sin(angle) * distance * 0.3,
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed,
+                        size: size,
+                        color: color,
+                        lifetime:
+                            PARTICLE_LIFETIME * (0.6 + Math.random() * 0.8), // Longer lifetime for explosion
+                        maxLifetime:
+                            PARTICLE_LIFETIME * (0.6 + Math.random() * 0.8),
+                        rotation: Math.random() * Math.PI * 2,
+                        rotationSpeed: (Math.random() - 0.5) * 0.4,
+                    });
+                }
+
+                // Draw initial shockwave
+                ctx.beginPath();
+                ctx.arc(x, y, explosionRadius * 0.5, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+
+                // Animate expanding shockwave with 3D effect
+                let opacity = 0.9;
+                let radius = explosionRadius * 0.5;
+                const maxRadius = explosionRadius * 1.5; // Allow explosion to exceed bomb radius
+
+                const animateExplosion = () => {
+                    // Smoothly increase radius with easing function
+                    radius += (maxRadius - radius) * 0.1;
+                    opacity -= 0.03;
+
+                    if (opacity > 0) {
+                        // Create dynamic gradient for each frame
+                        const waveGradient = ctx.createRadialGradient(
+                            x,
+                            y,
+                            radius * 0.7, // Inner radius
+                            x,
+                            y,
+                            radius, // Outer radius
+                        );
+                        waveGradient.addColorStop(0, `rgba(255, 165, 0, 0)`); // Transparent inner
+                        waveGradient.addColorStop(
+                            0.7,
+                            `rgba(255, 165, 0, ${opacity * 0.4})`,
+                        ); // Semi-transparent middle
+                        waveGradient.addColorStop(
+                            0.9,
+                            `rgba(255, 100, 0, ${opacity})`,
+                        ); // Opaque edge
+                        waveGradient.addColorStop(1, `rgba(255, 50, 0, 0)`); // Transparent outer
+
+                        // Draw expanding ring
+                        ctx.beginPath();
+                        ctx.arc(x, y, radius, 0, Math.PI * 2);
+                        ctx.fillStyle = waveGradient;
+                        ctx.fill();
+
+                        // Add another inner ring for added effect
+                        ctx.beginPath();
+                        ctx.arc(x, y, radius * 0.6, 0, Math.PI * 2);
+                        ctx.lineWidth = 3;
+                        ctx.strokeStyle = `rgba(255, 255, 0, ${opacity * 0.7})`;
+                        ctx.stroke();
+
+                        requestAnimationFrame(animateExplosion);
+                    }
+                };
+
+                // Play explosion sound
+                const explosionOsc = audioContext.createOscillator();
+                explosionOsc.type = "sawtooth";
+                explosionOsc.frequency.setValueAtTime(
+                    60,
+                    audioContext.currentTime,
+                );
+
+                const explosionGain = audioContext.createGain();
+                explosionGain.gain.setValueAtTime(
+                    0.5,
+                    audioContext.currentTime,
+                );
+                explosionGain.gain.exponentialRampToValueAtTime(
+                    0.01,
+                    audioContext.currentTime + 1.0,
+                );
+
+                explosionOsc.connect(explosionGain);
+                explosionGain.connect(audioContext.destination);
+
+                explosionOsc.start();
+                explosionOsc.stop(audioContext.currentTime + 1.0);
+
+                // Create "БУМ!" text effect with larger font and special styling
+                const text = "БУМ!";
+                const fontSize = 48; // Larger font for bomb explosion
+
+                // Add text with 3D shadow effect
+                for (let i = 0; i < 7; i++) {
+                    const offset = i + 1;
+                    ctx.font = `bold ${fontSize}px Arial`;
+                    ctx.fillStyle = `rgba(0, 0, 0, ${0.3 - i * 0.03})`;
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillText(text, x + offset, y + offset);
+                }
+
+                // Main explosion text with gradient
+                ctx.font = `bold ${fontSize}px Arial`;
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+
+                // Create gradient for text
+                const textGradient = ctx.createLinearGradient(
+                    x - 50,
+                    y - 25,
+                    x + 50,
+                    y + 25,
+                );
+                textGradient.addColorStop(0, "#ffff00");
+                textGradient.addColorStop(0.5, "#ff6600");
+                textGradient.addColorStop(1, "#ff0000");
+
+                // Fill text with gradient
+                ctx.fillStyle = textGradient;
+                ctx.fillText(text, x, y);
+
+                // Stroke for definition
+                ctx.strokeStyle = "white";
+                ctx.lineWidth = 2;
+                ctx.strokeText(text, x, y);
+
+                // Add to text effects array for animation
+                textEffects.push({
+                    text: text,
+                    x: x,
+                    y: y,
+                    fontSize: fontSize,
+                    opacity: 1,
+                    lifetime: TEXT_LIFETIME * 1.5, // Longer lifetime for explosion text
+                    gradient: textGradient,
+                    type: 3, // Bomb type
+                    growth: 1.5, // Faster growth for explosion text
+                    rotation: -0.1 + Math.random() * 0.2,
+                });
+
+                // Start animation
+                requestAnimationFrame(animateExplosion);
+            }
+
+            function createHitEffect(x, y, type = 0) {
+                const typeData = MOSQUITO_TYPES[type];
+
+                // Create explosion particles
+                const particleCount = 20 + Math.floor(Math.random() * 15);
+                for (let i = 0; i < particleCount; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = 1 + Math.random() * 5;
+                    const size = 3 + Math.random() * 5;
+                    const lifetime =
+                        PARTICLE_LIFETIME * (0.7 + Math.random() * 0.5);
+
+                    // Use gradient colors based on mosquito type
+                    let colors;
+                    if (type === 3) {
+                        // Bomb mosquito
+                        colors = [
+                            "#ffff00",
+                            "#ff9900",
+                            "#ff3300",
+                            "#cc0000",
+                            "#660000",
+                        ];
+                    } else if (type === 1) {
+                        // Red mosquito
+                        colors = [
+                            "#ff9999",
+                            "#ff6666",
+                            "#ff0000",
+                            "#cc0000",
+                            "#990000",
+                        ];
+                    } else if (type === 2) {
+                        // Blue mosquito
+                        colors = [
+                            "#9999ff",
+                            "#6666ff",
+                            "#0000ff",
+                            "#0000cc",
+                            "#000099",
+                        ];
+                    } else {
+                        // Regular mosquito
+                        colors = [
+                            "#997755",
+                            "#886644",
+                            "#775533",
+                            "#664422",
+                            "#553311",
+                        ];
+                    }
+
+                    const color =
+                        colors[Math.floor(Math.random() * colors.length)];
+
+                    particles.push({
+                        x: x,
+                        y: y,
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed,
+                        size: size,
+                        color: color,
+                        lifetime: lifetime,
+                        maxLifetime: lifetime,
+                        rotation: Math.random() * Math.PI * 2,
+                        rotationSpeed: (Math.random() - 0.5) * 0.2,
+                    });
+                }
+
+                // Add blood splatter for more realism (except for bomb mosquito)
+                if (type !== 3) {
+                    const splatterCount = 5 + Math.floor(Math.random() * 8);
+                    for (let i = 0; i < splatterCount; i++) {
+                        const angle = Math.random() * Math.PI * 2;
+                        const distance = 10 + Math.random() * 30;
+                        const splatterX = x + Math.cos(angle) * distance;
+                        const splatterY = y + Math.sin(angle) * distance;
+                        const splatterSize = 3 + Math.random() * 7;
+
+                        // Use blood color based on mosquito type
+                        let bloodColor;
+                        if (type === 1) {
+                            // Red mosquito
+                            bloodColor = "#bb0000";
+                        } else if (type === 2) {
+                            // Blue mosquito
+                            bloodColor = "#000088";
+                        } else {
+                            // Regular mosquito
+                            bloodColor = "#553300";
+                        }
+
+                        // Draw blood splatter
+                        ctx.fillStyle = bloodColor;
+                        ctx.globalAlpha = 0.7;
+                        ctx.beginPath();
+                        ctx.arc(
+                            splatterX,
+                            splatterY,
+                            splatterSize,
+                            0,
+                            Math.PI * 2,
+                        );
+                        ctx.fill();
+
+                        // Create drip effect occasionally
+                        if (Math.random() > 0.7) {
+                            const dripLength = 5 + Math.random() * 15;
+                            ctx.beginPath();
+                            ctx.moveTo(splatterX, splatterY);
+                            ctx.lineTo(splatterX, splatterY + dripLength);
+                            ctx.lineTo(
+                                splatterX + (Math.random() - 0.5) * 4,
+                                splatterY + dripLength,
+                            );
+                            ctx.fill();
+                        }
+                        ctx.globalAlpha = 1;
+                    }
+                }
+
+                // Create "БАХ!" text effect with 3D styling
+                const text = "БАХ!";
+                const fontSize = 32;
+
+                // Text shadows for 3D effect
+                for (let i = 0; i < 5; i++) {
+                    const offset = i + 1;
+                    ctx.font = `bold ${fontSize}px Arial`;
+                    ctx.fillStyle = `rgba(0, 0, 0, ${0.2 - i * 0.03})`;
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillText(text, x + offset, y + offset);
+                }
+
+                // Main text with gradient
+                ctx.font = `bold ${fontSize}px Arial`;
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+
+                // Create gradient based on mosquito type
+                let gradient;
+                if (type === 3) {
+                    // Bomb mosquito
+                    gradient = ctx.createLinearGradient(
+                        x - 50,
+                        y - 25,
+                        x + 50,
+                        y + 25,
+                    );
+                    gradient.addColorStop(0, "#ffff00");
+                    gradient.addColorStop(0.5, "#ff6600");
+                    gradient.addColorStop(1, "#ff0000");
+                } else if (type === 1) {
+                    // Red mosquito
+                    gradient = ctx.createLinearGradient(
+                        x - 50,
+                        y - 25,
+                        x + 50,
+                        y + 25,
+                    );
+                    gradient.addColorStop(0, "#ff6666");
+                    gradient.addColorStop(0.5, "#ff0000");
+                    gradient.addColorStop(1, "#990000");
+                } else if (type === 2) {
+                    // Blue mosquito
+                    gradient = ctx.createLinearGradient(
+                        x - 50,
+                        y - 25,
+                        x + 50,
+                        y + 25,
+                    );
+                    gradient.addColorStop(0, "#6666ff");
+                    gradient.addColorStop(0.5, "#0000ff");
+                    gradient.addColorStop(1, "#000099");
+                } else {
+                    // Regular mosquito
+                    gradient = ctx.createLinearGradient(
+                        x - 50,
+                        y - 25,
+                        x + 50,
+                        y + 25,
+                    );
+                    gradient.addColorStop(0, "#ff3333");
+                    gradient.addColorStop(0.5, "#ff0000");
+                    gradient.addColorStop(1, "#cc0000");
+                }
+
+                // Fill text with gradient
+                ctx.fillStyle = gradient;
+                ctx.fillText(text, x, y);
+
+                // Stroke for definition
+                ctx.strokeStyle = "white";
+                ctx.lineWidth = 2;
+                ctx.strokeText(text, x, y);
+
+                // Add text to text effects array for animation
+                textEffects.push({
+                    text: text,
+                    x: x,
+                    y: y,
+                    fontSize: fontSize,
+                    opacity: 1,
+                    lifetime: TEXT_LIFETIME,
+                    gradient: gradient,
+                    type: type,
+                    growth: 1.0,
+                    rotation: -0.1 + Math.random() * 0.2,
+                });
+
+                // For bomb mosquito, create explosion ring
+                if (type === 3) {
+                    // Create shockwave effect
+                    const shockwave = {
+                        x: x,
+                        y: y,
+                        radius: 5,
+                        maxRadius: BOMB_RADIUS,
+                        opacity: 0.7,
+                        lifetime: 20,
+                    };
+
+                    const animateShockwave = () => {
+                        shockwave.radius +=
+                            (shockwave.maxRadius - shockwave.radius) * 0.2;
+                        shockwave.opacity -= 0.035;
+
+                        if (shockwave.opacity > 0) {
+                            ctx.beginPath();
+                            const gradient = ctx.createRadialGradient(
+                                shockwave.x,
+                                shockwave.y,
+                                0,
+                                shockwave.x,
+                                shockwave.y,
+                                shockwave.radius,
+                            );
+                            gradient.addColorStop(0, "rgba(255, 255, 0, 0)");
+                            gradient.addColorStop(
+                                0.7,
+                                `rgba(255, 200, 0, ${shockwave.opacity * 0.3})`,
+                            );
+                            gradient.addColorStop(
+                                0.9,
+                                `rgba(255, 100, 0, ${shockwave.opacity})`,
+                            );
+                            gradient.addColorStop(1, "rgba(255, 0, 0, 0)");
+
+                            ctx.fillStyle = gradient;
+                            ctx.arc(
+                                shockwave.x,
+                                shockwave.y,
+                                shockwave.radius,
+                                0,
+                                Math.PI * 2,
+                            );
+                            ctx.fill();
+
+                            requestAnimationFrame(animateShockwave);
+                        }
+                    };
+
+                    requestAnimationFrame(animateShockwave);
+                }
+            }
+
+            function drawUI() {
+                // Draw level up message if active
+                if (showLevelUpMessage) {
+                    levelUpTime--;
+                    if (levelUpTime <= 0) {
+                        showLevelUpMessage = false;
+                    }
+
+                    // Draw pulsating level up message
+                    const pulseScale = 1 + Math.sin(Date.now() * 0.01) * 0.1;
+                    ctx.save();
+                    ctx.translate(canvas.width / 2, canvas.height / 2 - 50);
+                    ctx.scale(pulseScale, pulseScale);
+
+                    // Create gradient for the text
+                    const gradient = ctx.createLinearGradient(-150, 0, 150, 0);
+                    gradient.addColorStop(0, "#ff0000");
+                    gradient.addColorStop(0.5, "#ffff00");
+                    gradient.addColorStop(1, "#ff0000");
+
+                    ctx.font = "bold 40px Arial";
+                    ctx.fillStyle = gradient;
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillText(`УРОВЕНЬ ${currentLevel}!`, 0, 0);
+
+                    // Add stroke for better visibility
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = "black";
+                    ctx.strokeText(`УРОВЕНЬ ${currentLevel}!`, 0, 0);
+
+                    ctx.restore();
+                }
+
+                // Draw score and lives with improved styling
+                ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+                ctx.fillRect(10, 10, 170, 80);
+
+                ctx.fillStyle = "white";
+                ctx.font = "bold 24px Arial";
+                ctx.textAlign = "left";
+                ctx.fillText(`Очки: ${score}`, 20, 40);
+
+                // Colorize lives based on remaining amount
+                if (lives > 50) {
+                    ctx.fillStyle = "lime";
+                } else if (lives > 20) {
+                    ctx.fillStyle = "yellow";
+                } else {
+                    ctx.fillStyle = "red";
+                }
+                ctx.fillText(`Жизни: ${lives}`, 20, 70);
+
+                // Draw level indicator
+                ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+                ctx.fillRect(canvas.width - 180, 10, 170, 80);
+
+                ctx.fillStyle = "#ffcc00";
+                ctx.font = "bold 24px Arial";
+                ctx.fillText(
+                    `Уровень: ${currentLevel}`,
+                    canvas.width - 170,
+                    40,
+                );
+
+                // Draw level progress bar
+                const progressWidth = 150;
+                const progressHeight = 15;
+                const progressX = canvas.width - 170;
+                const progressY = 50;
+
+                // Progress bar background
+                ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+                ctx.fillRect(
+                    progressX,
+                    progressY,
+                    progressWidth,
+                    progressHeight,
+                );
+
+                // Calculate remaining mosquitoes needed for next level
+                const remainingMosquitoes =
+                    mosquitoesRequiredForNextLevel - mosquitoesKilledInLevel;
+
+                // Progress bar fill
+                const progressPercentage = Math.min(
+                    1,
+                    mosquitoesKilledInLevel / mosquitoesRequiredForNextLevel,
+                );
+                ctx.fillStyle = "#ffcc00";
+                ctx.fillRect(
+                    progressX,
+                    progressY,
+                    progressWidth * progressPercentage,
+                    progressHeight,
+                );
+
+                // Draw progress text showing remaining points needed
+                ctx.fillStyle = "white";
+                ctx.font = "12px Arial";
+                ctx.textAlign = "center";
+                ctx.fillText(
+                    `Осталось ${remainingMosquitoes} очков до уровня ${currentLevel + 1}`,
+                    progressX + progressWidth / 2,
+                    progressY + progressHeight + 12,
+                );
+            }
+        </script>
+    </body>
+</html>

@@ -1,0 +1,25 @@
+version: '3.8'
+services:
+  dev-environment:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      # Монтируем текущую директорию в контейнер
+      - ./projects:/app/projects
+      - .:/app
+      # Монтируем директорию для кеша Gradle (ускоряет сборку)
+      # gradle-cache:/root/.gradle
+      # Монтируем директорию для кеша npm (ускоряет установку пакетов)
+      # npm-cache:/root/.npm
+    working_dir: /app
+    ports:
+      - "8080:8080"
+    stdin_open: true
+    tty: true
+    environment:
+      - ANDROID_HOME=/opt/android-sdk
+      - ANDROID_SDK_ROOT=/opt/android-sdk
+      - JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+      - SKIP_JDK_VERSION_CHECK=1
+

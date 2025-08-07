@@ -1,0 +1,32 @@
+Для запуска контейнера и входа в его оболочку, выполните следующие команды в директории, где находятся `Dockerfile` и `docker-compose.yml`:
+
+1. Сборка Docker-образа (если вы еще этого не сделали):
+   ```bash
+   docker-compose build
+   ```
+
+2. Запуск контейнера в фоновом режиме:
+   ```bash
+   docker-compose up -d
+   ```
+
+3. Вход в оболочку запущенного контейнера:
+   ```bash
+   docker-compose exec dev-environment bash
+
+docker-compose exec --user root dev-environment bash
+   ```
+
+   Если вы хотите остановить и удалить контейнер:
+   ```bash
+   docker-compose down
+   ```
+
+-- Зарегистрировать новый дистрибутив в docker 
+
+docker pull ubuntu:jammy
+
+Список всех совместимых дистрибутивов
+https://hub.docker.com/_/ubuntu/
+
+
